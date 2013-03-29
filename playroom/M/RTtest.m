@@ -71,6 +71,23 @@ mCarpetMsk = hShpTmp.step(mCarpetMsk, pts);
 
 %% Detect dog
 hShp = vision.ShapeInserter('BorderColor','white');
+hBlob = vision.BlobAnalysis;
+hBlob.AreaOutputPort = true;
+hBlob.CentroidOutputPort = false;
+hBlob.OrientationOutputPort = false;
+hBlob.BoundingBoxOutputPort = true;
+hBlob.MinimumBlobAreaSource = 'Property';
+hBlob.MinimumBlobArea = 169;
+
+hCornerDet = vision.CornerDetector('MaximumCornerCount',3);
+mFeat = zeros(size(mDogFeat,1),9);
+
+%threshold against dog color
+DOG_COLOR = 0.1176;
+DOG_THRES = 0.05;
+DOG_SAT = 0.5;
+DOG_SAT_THRES = 0.2;
+DOG_SIZE = [84, 136];
 
 i = 0;
 while (~hVFR.isDone)
@@ -79,31 +96,45 @@ while (~hVFR.isDone)
     imOrig = hVFR.step;
     imFrm = rgb2hsv(imOrig);
 
-    %threshold norm against carpet color
-    DOG_COLOR = 0.1176;
-    DOG_THRES = 0.05;
-    DOG_SAT = 0.5;
-    DOG_SAT_THRES = 0.2;
-    
     imDog = mCarpetMsk & ...
-            (abs(imFrm(:,:,1) - DOG_COLOR) < DOG_THRES); % & ...
-%             (abs(imFrm(:,:,2) - DOG_SAT) < DOG_SAT_THRES) ;
+            (abs(imFrm(:,:,1) - DOG_COLOR) < DOG_THRES) & ...
+            (abs(imFrm(:,:,2) - DOG_SAT) < DOG_SAT_THRES) ;
 
     if (i == 500)
         i = 1000;
     end
     
     %find biggest blob
-    hBlob = vision.BlobAnalysis;
-    hBlob.AreaOutputPort = true;
-    hBlob.CentroidOutputPort = false;
-    hBlob.OrientationOutputPort = false;
-
     [mAreas,mBBDog] = hBlob.step(imDog);
     
-    [~,ind] = max(mAreas);
+%     [~,ind] = max(mAreas);
     
-%     [mTmp,idx] = sort(mAreas, 'descend');
+    [~,idx] = sort(mAreas, 'descend');
+    mFeat = single(zeros(size(mDogFeat,1),9));
+
+    for j=1:3
+        ind = idx(j);
+        if (mAreas(ind) < 0)
+            break;
+        end
+        
+         mBox = double([mBBDog(2,ind)            mBBDog(1,ind); 
+            mBBDog(2,ind)+mBBDog(4,ind)   mBBDog(1,ind); 
+            mBBDog(2,ind)+mBBDog(4,ind)   mBBDog(1,ind)+mBBDog(3,ind);
+            mBBDog(2,ind)                 mBBDog(1,ind)+mBBDog(3,ind)]);
+    
+        [mCorners, ~] = hCornerDet.step(imOrig(:,:,3) & poly2mask( ...
+            mBox(:,1),mBox(:,2),360,640 ));
+        
+        [mFeat(:,((j-1)*3+1):(j*3)), ~] = extractFeatures(...
+            imOrig(:,:,3), mCorners);
+    end
+    
+    [mMatch, mMatchMet] = matchFeatures(mFeat, mDogFeat);
+    if (~isempty(mMatch))
+        i = 100;
+    end
+    
 %     [~,ind] = max(mTmp(1:5) ./ (mBBDog(3,idx(1:5)) .* mBBDog(4,idx(1:5))));
 %     ind = idx(ind);
     
@@ -119,3 +150,5 @@ while (~hVFR.isDone)
     hPl2.step(imOrig);
     hPl.step(imDog);
 end
+
+% 182 169 / 229 210
