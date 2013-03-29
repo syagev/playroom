@@ -57,7 +57,8 @@ mCarpetMsk = hShpTmp.step(mCarpetMsk, pts);
 %% Learn background
 
 % hVFR.reset;
-% hFG = vision.ForegroundDetector;
+% hFG = vision.ForegroundDetector('NumGaussians',3, 'AdaptLearningRate',true);
+
 % 
 % while (~hVFR.isDone)
 %     im = hVFR.step;
@@ -83,10 +84,12 @@ hCornerDet = vision.CornerDetector('MaximumCornerCount',3);
 mFeat = zeros(size(mDogFeat,1),9);
 
 %threshold against dog color
+BG_THRES = 0.05;
+BG_ACCUM = 0.004;
 DOG_COLOR = 0.1176;
-DOG_THRES = 0.05;
+DOG_THRES = 0.04;
 DOG_SAT = 0.5;
-DOG_SAT_THRES = 0.2;
+DOG_SAT_THRES = 0.15;
 DOG_SIZE = [84, 136];
 
 i = 0;
@@ -95,57 +98,61 @@ while (~hVFR.isDone)
     
     imOrig = hVFR.step;
     imFrm = rgb2hsv(imOrig);
-
-    imDog = mCarpetMsk & ...
+    
+%     if (i == 500)
+%         imFG = hFG.step(imOrig, 0.05);
+%     else
+%         imFG = hFG.step(imOrig);
+%     end
+    
+    if (i == 1)
+        imBG = imFrm(:,:,3);
+    else
+        imBG = imBG + (imFrm(:,:,3) > imBG)*BG_ACCUM;
+        imBG = imBG - (imFrm(:,:,3) < imBG)*BG_ACCUM;
+    end
+    
+    imFG = abs(double(imFrm(:,:,3)) - double(imBG)) > BG_THRES;
+    imDog = mCarpetMsk & imFG & ...
             (abs(imFrm(:,:,1) - DOG_COLOR) < DOG_THRES) & ...
             (abs(imFrm(:,:,2) - DOG_SAT) < DOG_SAT_THRES) ;
-
-    if (i == 500)
-        i = 1000;
-    end
+    
     
     %find biggest blob
     [mAreas,mBBDog] = hBlob.step(imDog);
+    [~,ind] = max(mAreas);
     
-%     [~,ind] = max(mAreas);
-    
-    [~,idx] = sort(mAreas, 'descend');
-    mFeat = single(zeros(size(mDogFeat,1),9));
-
-    for j=1:3
-        ind = idx(j);
-        if (mAreas(ind) < 0)
-            break;
-        end
-        
-         mBox = double([mBBDog(2,ind)            mBBDog(1,ind); 
-            mBBDog(2,ind)+mBBDog(4,ind)   mBBDog(1,ind); 
-            mBBDog(2,ind)+mBBDog(4,ind)   mBBDog(1,ind)+mBBDog(3,ind);
-            mBBDog(2,ind)                 mBBDog(1,ind)+mBBDog(3,ind)]);
-    
-        [mCorners, ~] = hCornerDet.step(imOrig(:,:,3) & poly2mask( ...
-            mBox(:,1),mBox(:,2),360,640 ));
-        
-        [mFeat(:,((j-1)*3+1):(j*3)), ~] = extractFeatures(...
-            imOrig(:,:,3), mCorners);
-    end
-    
-    [mMatch, mMatchMet] = matchFeatures(mFeat, mDogFeat);
-    if (~isempty(mMatch))
-        i = 100;
-    end
+%     [~,idx] = sort(mAreas, 'descend');
+%     mFeat = single(zeros(size(mDogFeat,1),9));
+% 
+%     for j=1:3
+%         ind = idx(j);
+%         if (mAreas(ind) < 0)
+%             break;
+%         end
+%         
+%          mBox = double([mBBDog(2,ind)            mBBDog(1,ind); 
+%             mBBDog(2,ind)+mBBDog(4,ind)   mBBDog(1,ind); 
+%             mBBDog(2,ind)+mBBDog(4,ind)   mBBDog(1,ind)+mBBDog(3,ind);
+%             mBBDog(2,ind)                 mBBDog(1,ind)+mBBDog(3,ind)]);
+%     
+%         [mCorners, ~] = hCornerDet.step(imOrig(:,:,3) .* poly2mask( ...
+%             mBox(:,1),mBox(:,2),360,640 ));
+%         
+%         [mFeatTmp, ~] = extractFeatures(...
+%             imOrig(:,:,3), mCorners);
+%         mFeat(:,((j-1)*3+1):((j-1)*3+size(mFeatTmp,2))) = mFeatTmp;
+%     end
+%     
+%     [mMatch, mMatchMet] = matchFeatures(mFeat, mDogFeat);
+%     if (~isempty(mMatch))
+%         imOrig = hShp.step(imOrig, mBBDog(:,idx(floor((mMatch(1)-1)/3)+1)));
+%     end
     
 %     [~,ind] = max(mTmp(1:5) ./ (mBBDog(3,idx(1:5)) .* mBBDog(4,idx(1:5))));
 %     ind = idx(ind);
     
     imOrig = hShp.step(imOrig, mBBDog(:,ind));
-    
-    %extract bounding box coordinates
-    % mBox = [mBBCarpet(2,ind)                    mBBCarpet(1,ind); 
-    %         mBBCarpet(2,ind)+mBBCarpet(4,ind)   mBBCarpet(1,ind); 
-    %         mBBCarpet(2,ind)+mBBCarpet(4,ind)   mBBCarpet(1,ind)+mBBCarpet(3,ind);
-    %         mBBCarpet(2,ind)                    mBBCarpet(1,ind)+mBBCarpet(3,ind)];
-    % 
     
     hPl2.step(imOrig);
     hPl.step(imDog);
