@@ -3,16 +3,20 @@ if (~exist('hVFR','var'))
     hPl = vision.VideoPlayer;
     hPl2 = vision.VideoPlayer;
 else
-     hVFR.reset;   
+%     hVFR.reset;
+    set(hCam,'FramesPerTrigger', 1);
+    set(hCam,'TriggerRepeat', Inf);
+    set(hCam,'FrameGrabInterval', 3);
+    start(hCam);
 end
 
 %% Carpet detection
 
-mCarpetMsk = zeros(360,640);
+mCarpetMsk = ones(360,640);
 hShpTmp = vision.ShapeInserter('Shape','Polygons','Fill',true, ...
     'FillColor','white','Opacity',1);
-pts = [32;110;90;414;320;360;250;60];
-mCarpetMsk = hShpTmp.step(mCarpetMsk, pts);
+% pts = [32;110;90;414;320;360;250;60];
+% mCarpetMsk = hShpTmp.step(mCarpetMsk, pts);
 
 % %read first frame to detect carpet
 % imCarpet = hVFR.step;
@@ -74,7 +78,7 @@ mCarpetMsk = hShpTmp.step(mCarpetMsk, pts);
 hShp = vision.ShapeInserter('BorderColor','white');
 hBlob = vision.BlobAnalysis;
 hBlob.AreaOutputPort = true;
-hBlob.CentroidOutputPort = false;
+hBlob.CentroidOutputPort = true;
 hBlob.OrientationOutputPort = false;
 hBlob.BoundingBoxOutputPort = true;
 hBlob.MinimumBlobAreaSource = 'Property';
@@ -87,16 +91,21 @@ mFeat = zeros(size(mDogFeat,1),9);
 BG_THRES = 0.05;
 BG_ACCUM = 0.004;
 DOG_COLOR = 0.1176;
-DOG_THRES = 0.04;
+DOG_THRES = 0.02;
 DOG_SAT = 0.5;
 DOG_SAT_THRES = 0.15;
 DOG_SIZE = [84, 136];
 
+TREAT_POS = [110; 256];
+COLLECT_THRES = 15;
+
 i = 0;
-while (~hVFR.isDone)
+while (hCam.Running)
     i = i + 1;
     
-    imOrig = hVFR.step;
+%     imOrig = hVFR.step;
+    
+    imOrig = getdata(hCam,1);
     imFrm = rgb2hsv(imOrig);
     
 %     if (i == 500)
@@ -113,13 +122,13 @@ while (~hVFR.isDone)
     end
     
     imFG = abs(double(imFrm(:,:,3)) - double(imBG)) > BG_THRES;
-    imDog = mCarpetMsk & imFG & ...
+    imDog = imFG & ...
             (abs(imFrm(:,:,1) - DOG_COLOR) < DOG_THRES) & ...
             (abs(imFrm(:,:,2) - DOG_SAT) < DOG_SAT_THRES) ;
     
     
     %find biggest blob
-    [mAreas,mBBDog] = hBlob.step(imDog);
+    [mAreas,mPos,mBBDog] = hBlob.step(imDog);
     [~,ind] = max(mAreas);
     
 %     [~,idx] = sort(mAreas, 'descend');
@@ -144,7 +153,7 @@ while (~hVFR.isDone)
 %         mFeat(:,((j-1)*3+1):((j-1)*3+size(mFeatTmp,2))) = mFeatTmp;
 %     end
 %     
-%     [mMatch, mMatchMet] = matchFeatures(mFeat, mDogFeat);
+%     [mMatch, mMatchM et] = matchFeatures(mFeat, mDogFeat);
 %     if (~isempty(mMatch))
 %         imOrig = hShp.step(imOrig, mBBDog(:,idx(floor((mMatch(1)-1)/3)+1)));
 %     end
@@ -152,6 +161,11 @@ while (~hVFR.isDone)
 %     [~,ind] = max(mTmp(1:5) ./ (mBBDog(3,idx(1:5)) .* mBBDog(4,idx(1:5))));
 %     ind = idx(ind);
     
+    if (norm(mPos(:,ind) - TREAT_POS) < COLLECT_THRES)
+        beep;
+        beep;
+    end
+
     imOrig = hShp.step(imOrig, mBBDog(:,ind));
     
     hPl2.step(imOrig);
