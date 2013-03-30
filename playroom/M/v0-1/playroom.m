@@ -206,7 +206,7 @@ while (get(fLogo,'CurrentCharacter') ~= 'x')
             imOrig = getdata(hCam,1);
         else
             break;
-        end
+        end 
     else
         if (~hVFR.isDone)
             imOrig = hVFR.step;
