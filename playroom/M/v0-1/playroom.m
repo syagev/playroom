@@ -197,6 +197,7 @@ end
 iCurrentSound = [-1 -1];
 
 %do the PlayRoom!
+display('PlayRoom running, press x to stop');
 i = 0;
 while (get(fLogo,'CurrentCharacter') ~= 'x')
     %get next frame
