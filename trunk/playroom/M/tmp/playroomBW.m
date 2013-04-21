@@ -9,8 +9,8 @@
 
 %% Parameters & Constants 
 
-sFile = 'R1-bg-grab-move-1prop.wmv';
-MAX_PROPS = 3;
+sFile = 'R1-nobg-grab-move-1prop.wmv';
+MAX_PROPS = 1;
 BB_COLOR = uint8([255 255 255; 0 255 0; 0 0 255]);   %colors for BBs
 SOUND_DELAY = 15;           %number of frames afterwhich to turn off snd
 
@@ -24,6 +24,11 @@ HUE_THRES = 0.02;           %hue threshold
 SAT_THRES = 0.30;           %saturation threshold
 
 HOTSPOT_THRES = 30;         %min distance from hot-spot to trigger
+
+
+%%%%%%%%%%
+NUM_CRN = 100;              %num corners for orientation detection
+%%%%%%%%%%
 
 
 %% Initialization 
@@ -44,7 +49,7 @@ if (strcmp(sFile,'CAM'))
 else
     bCam = false;
     if (~exist('hVFR','var'))
-        hVFR = vision.VideoFileReader('R1-bg-grab-move-1prop.wmv');
+        hVFR = vision.VideoFileReader(sFile);
     else
         hVFR.reset;
     end
@@ -98,6 +103,12 @@ if (~exist('mProps','var'))
     imshow(im);
     display('Mark center of props for hue sample');
     mPropsLoc = int32(ginput(MAX_PROPS)); %x,y matrix
+    
+    %%%%%%%%%%
+    display('Mark prop bounding box')
+    mPropsBB = ginput(4); %x,y matrix
+    %%%%%%%%%%
+    
     close(f);
     
     %extract hue & sat values
@@ -105,6 +116,33 @@ if (~exist('mProps','var'))
     nProps = size(mPropsLoc,1);
     mProps = [diag(imHSV(mPropsLoc(:,2),mPropsLoc(:,1),1)) ...
               diag(imHSV(mPropsLoc(:,2),mPropsLoc(:,1),2))];
+          
+    %%%%%%%%%%
+    % get features for front & back
+    % crop prop and get corner descriptors
+    imProps = im(min(mPropsBB(:,2)) : max(mPropsBB(:,2)),...
+        min(mPropsBB(:,1)) : max(mPropsBB(:,1)));
+    mPropsD = corner(imProps,'MinimumEigenvalue',NUM_CRN);
+    mPropsD(mPropsD(1,:) == -1) = []; %remove redundant corners
+    mPropsCr = mean(mPropsD,1);
+    % sample & determine orientation
+    hCorners = vision.ShapeInserter('Shape','Circles');
+    hCorners.BorderColor = 'White';
+    imTMP = hCorners.step(imProps,[flipud(mPropsCr'); 3]);
+    f = figure('Name', 'Prop sampling');
+    imshow(imTMP);
+    display('Mark front of props relative to center for orientation tuning');
+    mPropsFr = int32(ginput(MAX_PROPS));
+    close(f);
+    mPropsOr = atan(-1 * double(mPropsFr(2) - mPropsCr(2)) /...
+        double(mPropsFr(1) - mPropsCr(1)));
+    if mPropsCr(1) > mPropsFr(1)
+        mPropsOr = mPropsOr + pi; % directional compensation
+    end
+    mPropsR = [cos(mPropsOr), -sin(mPropsOr); sin(mPropsOr), cos(mPropsOr)];
+    % square
+    mPropsSq = [120, 120];
+    %%%%%%%%%%
 end
 
 %% Carpet detection (currently manual) 
@@ -183,6 +221,27 @@ if (~exist('hBlob','var'))
     hBlob.MinimumBlobArea = MIN_BLOB_AREA;
 end
 
+%%%%%%%%%%
+if (~exist('hGTE','var'))
+    hGTE = vision.GeometricTransformEstimator;
+    hGTE.InlierOutputPort = 1;
+    hGTE.Transform = 'Nonreflective similarity';
+    hGTE.ExcludeOutliers = 0;
+%     hGTE.InlierPercentageSource = 'Property';
+%     hGTE.PixelDistanceThreshold = 10;
+end
+if (~exist('hPropOr','var'))
+    hPropOr = vision.ShapeInserter;
+    hPropOr.BorderColorSource = 'Input port';
+    hPropOr.Shape = 'Lines';
+end
+if (~exist('hPropFr','var'))
+    hPropFr = vision.ShapeInserter;
+    hPropFr.BorderColorSource = 'Input port';
+    hPropFr.Shape = 'Circles';
+end
+%%%%%%%%%%
+
 %open a figure with the logo for keybaord input
 fLogo = figure;
 imshow(imread('logo.jpg'));
@@ -248,6 +307,67 @@ while (get(fLogo,'CurrentCharacter') ~= 'x')
         [mAreas,mPos,mBB] = hBlob.step(imProp);
         [~,ind] = max(mAreas);
         
+        
+        %%%%%%%%%%
+        %detect prop's orientation
+        if any(mPos(ind) + 1)
+            
+            % crop prop
+            if (i == 1097)
+                i = 1097;
+            end
+            
+            blobLoc = round(mPos(:,ind));
+            imPropTMP = imFrm(blobLoc(1) - mPropsSq(1) : blobLoc(1) + mPropsSq(1),...
+                blobLoc(2) - mPropsSq(2) : blobLoc(2) + mPropsSq(2),3);
+            
+            % get corners and find correspondence
+            iPropD = corner(imPropTMP,'MinimumEigenvalue',NUM_CRN);
+%             [tform, iCor] = step(hGTE, iPropD', mPropsD', uint8(NUM_CRN / 2));
+%             tform = step(hGTE, iPropD', mPropsD', uint8(NUM_CRN / 2));
+%             [x, orderedInd] = Hebert_Leordeanu(P, Q, n_or_scorelimit, threshold, sigd, ...
+%     xcorr);
+           
+            % get absolute location & orientation in frame
+            iPropD(iPropD(:,1) == -1,:) = []; % remove redundant corners
+            cnLoc = flipud(mean(iPropD,1)'); % mean of detected corners
+            cnLoc = blobLoc + cnLoc - [mPropsSq(1); mPropsSq(2)];
+% % %             iPropOr = atan(-tform(2,1) / tform(1,1));
+% % %             if tform(1,1) < 0
+% % %                 iPropOr = iPropOr + pi; % directional compensation
+% % %             end
+% % %             iPropOr = iPropOr + mPropsOr;
+            vec = tform(:,1:2) - eye(2);
+            if norm(vec) > 0.1
+                aaa = 1;
+            end
+            
+            frLoc = cnLoc + 25 * (tform(:,1:2) * mPropsR) * [1; 0];
+            
+% % %             % visualize, for debugging
+% % %             hCorners = vision.ShapeInserter('Shape','Circles');
+% % %             hCorners.BorderColor = 'White';
+% % %             figure;
+% % %             % prop sample
+% % %             pts = [flipud(mPropsD'); 3 * ones(1,size(mPropsD,1))];
+% % %             imTMP = hCorners.step(imProps,pts);
+% % %             subplot(3,1,1); imshow(imTMP); title('sampled template')
+% % % 
+% % %             % prop
+% % %             pts = [flipud(iPropD'); 3 * ones(1,size(iPropD,1))];
+% % %             imTMP = hCorners.step(imPropTMP,pts);
+% % %             subplot(3,1,2); imshow(imTMP); title('detected template')
+% % % 
+% % %             % matched points
+% % %             pts = [flipud(iPropD(iCor,:)'); 3 * ones(1,sum(iCor))];
+% % %             imTMP = hCorners.step(imPropTMP,pts);
+% % %             subplot(3,1,3); imshow(imTMP); title('matched points')
+
+        end
+        %%%%%%%%%%
+        
+        
+        
         %check if close to a hot-spot
         bHitHotSpot = false;
         for iHotSpot=1:nHotSpots
@@ -279,6 +399,14 @@ while (get(fLogo,'CurrentCharacter') ~= 'x')
         
         %draw bounding box
         imOrig = hBoxInsert.step(imOrig, mBB(:,ind), single(BB_COLOR(iProp,:)));
+        
+        %%%%%%%%%%
+        % draw orientation
+        if any(mPos(ind) + 1)
+            imOrig = hPropOr.step(imOrig, [frLoc; cnLoc], single(BB_COLOR(iProp,:)));
+            imOrig = hPropFr.step(imOrig, [frLoc; 7], single(BB_COLOR(iProp,:)));
+        end
+        %%%%%%%%%%
     end
 
     %it's always nice to see
