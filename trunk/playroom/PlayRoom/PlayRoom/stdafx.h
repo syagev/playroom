@@ -22,8 +22,6 @@
 
 #include <afxdisp.h>        // MFC Automation classes
 
-
-
 #ifndef _AFX_NO_OLE_SUPPORT
 #include <afxdtctl.h>           // MFC support for Internet Explorer 4 Common Controls
 #endif
@@ -33,11 +31,11 @@
 
 #include <afxcontrolbars.h>     // MFC support for ribbons and control bars
 
+#include <agents.h>			// Concurrency runtime 
+#include <ppltasks.h>
+#include <atomic>
 
-
-
-
-
+#include <mmsystem.h>		// MM system
 
 
 
@@ -52,3 +50,11 @@
 #endif
 
 
+#ifndef __OPENCV_ALL_HPP__
+#include "opencv2/opencv.hpp"
+#endif // !__OPENCV_ALL_HPP__
+
+
+#ifdef _DEBUG
+#define new DEBUG_NEW
+#endif
